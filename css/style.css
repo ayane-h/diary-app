@@ -133,6 +133,16 @@
 
 .dr-icon-btn img {
     width: 20px;
+    height: 20px;
+    display: block;
+    object-fit: contain;
+}
+
+#dr-photo-btn img {
+    width: 19px;
+    height: 19px;
+    display: block;
+    object-fit: contain;
 }
 
 /* ---------- Search ---------- */
@@ -171,7 +181,8 @@
 
 .dr-search-icon img {
     width: 18px;
-    margin-top: 4px;
+    height: 18px;
+    display: block;
 }
 
 .dr-filter-row {
@@ -370,6 +381,9 @@
     height: 36px;
     cursor: pointer;
     color: var(--ink);
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .dr-photo-preview {
