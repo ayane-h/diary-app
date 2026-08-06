@@ -864,6 +864,17 @@
     color: var(--ink);
 }
 
+@media (max-width: 600px) {
+    .dr-tag-add-input,
+    .dr-font-select,
+    .dr-textarea,
+    .dr-search input,
+    .dr-modal input,
+    .dr-modal select {
+        font-size: 16px;
+    }
+}
+
 @media (max-width: 420px) {
     .dr-composer-row {
         flex-direction: column;
