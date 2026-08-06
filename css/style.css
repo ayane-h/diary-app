@@ -876,7 +876,7 @@
     }
 }
 
-@media (max-width: 402px) {
+@media (max-width: 430px) {
     .dr-composer-row {
         flex-direction: column;
         align-items: stretch;
