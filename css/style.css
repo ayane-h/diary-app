@@ -31,7 +31,8 @@
     --surface-hover-strong: rgba(255, 255, 255, 0.1);
     font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
     color: var(--ink);
-    min-height: 100vh;
+    min-height: 100vh; /* 古いブラウザ向けのフォールバック */
+    min-height: 100dvh;
     box-sizing: border-box;
     padding: 26px 16px 60px;
     background: var(--page-bg);
