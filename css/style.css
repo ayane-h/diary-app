@@ -4,6 +4,12 @@
     margin: 0;
     padding: 0;
 }
+
+html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
+
 #diary-root {
     --bg1: #2E2F52;
     --bg2: #14162A;
