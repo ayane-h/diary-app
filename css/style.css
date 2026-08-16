@@ -196,7 +196,23 @@ html {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin: 4px 2px 16px;
+    margin: 4px 2px 4px;
+}
+
+.dr-tag-expand-btn {
+    display: block;
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 12px;
+    padding: 2px 2px 14px;
+    margin: 0 2px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.dr-tag-expand-btn:hover {
+    text-decoration: underline;
 }
 
 .dr-hidden-entry {
@@ -348,6 +364,47 @@ html {
 
 .dr-tag-add-input:focus {
     border-color: var(--accent);
+}
+
+/* ---------- タグ管理（設定モーダル内） ---------- */
+.dr-tag-manage-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.dr-tag-manage-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    padding: 5px 6px 5px 11px;
+    border-radius: 20px;
+    background: var(--surface-1);
+    border: 1px solid var(--card-border);
+    color: var(--ink-soft);
+}
+
+.dr-tag-manage-del {
+    background: none;
+    border: none;
+    color: var(--ink-faint);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.dr-tag-manage-del:hover {
+    background: var(--danger);
+    color: #3A1414;
 }
 
 .dr-composer-row {
@@ -893,4 +950,3 @@ html {
         padding: 13px 0;
     }
 }
-

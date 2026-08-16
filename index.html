@@ -54,6 +54,9 @@
         analysis: null,
         analysisLoaded: false,
         analysisLoading: false,
+        pendingDeleteTag: null,
+        composerTagsExpanded: false,
+        filterTagsExpanded: false,
       };
 
       // ---------------- storage helpers ----------------
@@ -485,6 +488,22 @@
         if (!state.draftTags.includes(name)) state.draftTags.push(name);
         render();
       }
+      // タグ削除：候補リストから消すだけで、過去の日記が持つタグ(entry.tags)は書き換えない
+      async function deleteTag(name) {
+        if (!name) return;
+        const i = state.settings.tags.indexOf(name);
+        if (i === -1) return;
+        state.settings.tags.splice(i, 1);
+        const di = state.draftTags.indexOf(name);
+        if (di !== -1) state.draftTags.splice(di, 1);
+        if (state.tagFilter === name) state.tagFilter = null;
+        state.pendingDeleteTag = null;
+        state.modal = null;
+        await persist();
+        render();
+        showToast(`「${name}」タグを削除しました`);
+        scheduleSync();
+      }
       // 「⋯」メニューの外側をクリックしたら自動で閉じる
       function bindOutsideMenuClose() {
         setTimeout(() => {
@@ -502,6 +521,18 @@
       function fmtDate(ts) {
         const d = new Date(ts);
         return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+      }
+      // タグの表示数を制限し、「すべてのタグを見る」で展開できるようにする共通ヘルパー
+      const TAG_SHOW_LIMIT = 8;
+      function renderTagChips(tags, opts) {
+        const expanded = opts.expanded;
+        const shown = expanded ? tags : tags.slice(0, TAG_SHOW_LIMIT);
+        const hasMore = tags.length > TAG_SHOW_LIMIT;
+        const chipsHtml = shown.map(opts.chipHtml).join('');
+        const toggleHtml = hasMore
+          ? `<button class="dr-tag-expand-btn" id="${opts.toggleId}">${expanded ? '閉じる' : `すべてのタグを見る（${tags.length}）`}</button>`
+          : '';
+        return { chipsHtml, toggleHtml };
       }
 
       function render() {
@@ -524,6 +555,17 @@
           return (e.text || '').toLowerCase().includes(state.query.toLowerCase());
         });
 
+        const filterTags = renderTagChips(usedTags, {
+          expanded: state.filterTagsExpanded,
+          toggleId: 'dr-filter-tags-toggle',
+          chipHtml: t => `<button class="dr-tag-chip ${state.tagFilter === t ? 'selected' : ''}" data-tag-filter="${esc(t)}">#${esc(t)}</button>`,
+        });
+        const composerTags = renderTagChips(state.settings.tags, {
+          expanded: state.composerTagsExpanded,
+          toggleId: 'dr-composer-tags-toggle',
+          chipHtml: t => `<button class="dr-tag-chip ${state.draftTags.includes(t) ? 'selected' : ''}" data-tag-toggle="${esc(t)}">${esc(t)}</button>`,
+        });
+
         root.innerHTML = `
         <div class="dr-wrap">
           <div class="dr-header">
@@ -543,7 +585,7 @@
             <span class="dr-search-icon"><img src="img/虫眼鏡アイコン9.png"></span>
             <input id="dr-search-input" type="text" placeholder="日記を検索" value="${esc(state.query)}" />
           </div>
-          ${usedTags.length ? `<div class="dr-filter-row">${usedTags.map(t => `<button class="dr-tag-chip ${state.tagFilter === t ? 'selected' : ''}" data-tag-filter="${esc(t)}">#${esc(t)}</button>`).join('')}</div>` : ''}
+          ${usedTags.length ? `<div class="dr-filter-row">${filterTags.chipsHtml}</div>${filterTags.toggleHtml}` : ''}
           ${hiddenCount > 0 ? `<button class="dr-hidden-entry" id="dr-open-hidden">🌙 しまった日記（${hiddenCount}件）</button>` : ''}
 
           <div class="dr-composer">
@@ -559,9 +601,10 @@
                   <button class="dr-remove-photo" id="dr-remove-photo">×</button>
                 </div>` : ''}
               <div class="dr-tag-row">
-                ${state.settings.tags.map(t => `<button class="dr-tag-chip ${state.draftTags.includes(t) ? 'selected' : ''}" data-tag-toggle="${esc(t)}">${esc(t)}</button>`).join('')}
+                ${composerTags.chipsHtml}
                 <input class="dr-tag-add-input" id="dr-new-tag-input" placeholder="+ タグを追加" />
               </div>
+              ${composerTags.toggleHtml}
               <div class="dr-composer-row">
                 <div class="dr-composer-tools">
                   <select class="dr-font-select" id="dr-font-select">
@@ -678,6 +721,17 @@
                 <option value="light" ${state.settings.theme === 'light' ? 'selected' : ''}>ライト</option>
               </select>
 
+              <label>タグ管理</label>
+              ${state.settings.tags.length ? `
+                <div class="dr-tag-manage-row">
+                  ${state.settings.tags.map(t => `
+                    <span class="dr-tag-manage-chip">
+                      ${esc(t)}
+                      <button class="dr-tag-manage-del" data-delete-tag="${esc(t)}" aria-label="「${esc(t)}」を削除">×</button>
+                    </span>`).join('')}
+                </div>
+              ` : `<div style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px;">まだタグがありません。</div>`}
+
               <label>ロック機能</label>
               <div style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px;">
                 ${state.settings.pinHash ? '現在、アプリはPINで保護されています。' : 'PINを設定すると、開くたびにロック画面が表示されます。'}
@@ -702,6 +756,20 @@
               <div class="dr-modal-actions">
                 <button class="dr-modal-btn ghost" id="dr-modal-close">キャンセル</button>
                 <button class="dr-modal-btn primary" id="dr-confirm-pin">設定する</button>
+              </div>
+            </div>
+          </div>`;
+        }
+        if (state.modal === 'delete-tag') {
+          const name = state.pendingDeleteTag || '';
+          return `
+          <div class="dr-modal-backdrop" id="dr-modal-backdrop">
+            <div class="dr-modal">
+              <h3>「${esc(name)}」タグを削除しますか？</h3>
+              <div class="dr-modal-note">このタグが付いている日記は削除されません。今後、選択肢に表示されなくなるだけです。</div>
+              <div class="dr-modal-actions">
+                <button class="dr-modal-btn ghost" id="dr-modal-close">キャンセル</button>
+                <button class="dr-modal-btn danger" id="dr-confirm-delete-tag">削除する</button>
               </div>
             </div>
           </div>`;
@@ -829,10 +897,18 @@
           if (i === -1) state.draftTags.push(t); else state.draftTags.splice(i, 1);
           render();
         });
+        if (q('#dr-composer-tags-toggle')) q('#dr-composer-tags-toggle').onclick = () => { state.composerTagsExpanded = !state.composerTagsExpanded; render(); };
+        if (q('#dr-filter-tags-toggle')) q('#dr-filter-tags-toggle').onclick = () => { state.filterTagsExpanded = !state.filterTagsExpanded; render(); };
         if (q('#dr-new-tag-input')) {
           const inp = q('#dr-new-tag-input');
           inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); addNewTag(inp.value); } });
         }
+        qa('[data-delete-tag]').forEach(btn => btn.onclick = () => {
+          state.pendingDeleteTag = btn.dataset.deleteTag;
+          state.modal = 'delete-tag';
+          render();
+        });
+        if (q('#dr-confirm-delete-tag')) q('#dr-confirm-delete-tag').onclick = () => deleteTag(state.pendingDeleteTag);
 
         if (q('#dr-textarea')) {
           const ta = q('#dr-textarea');
