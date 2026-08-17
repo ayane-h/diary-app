@@ -484,7 +484,7 @@
       function addNewTag(name) {
         name = (name || '').trim();
         if (!name) return;
-        if (!state.settings.tags.includes(name)) { state.settings.tags.push(name); persist(); scheduleSync(); }
+        if (!state.settings.tags.includes(name)) { state.settings.tags.unshift(name); persist(); scheduleSync(); }
         if (!state.draftTags.includes(name)) state.draftTags.push(name);
         render();
       }
@@ -570,9 +570,9 @@
         <div class="dr-wrap">
           <div class="dr-header">
             <div class="dr-header-actions">
-              <button class="dr-icon-btn" id="dr-open-analysis" title="じぶんを見つめる"><img src="img/手鏡アイコン4.png"></button>
+              <button class="dr-icon-btn" id="dr-open-analysis" title="じぶんを見つめる"><img src="img/手鏡アイコン.png"></button>
               ${state.settings.pinHash ? '<button class="dr-icon-btn" id="dr-lock-now" title="ロックする"><img src="img/鍵アイコン.png"></button>' : ''}
-              <button class="dr-icon-btn" id="dr-open-settings" title="設定"><img src="img/設定アイコン.png"></button>
+              <button class="dr-icon-btn" id="dr-open-settings" title="設定"><img src="img/歯車アイコン.png"></button>
             </div>
             <div class="dr-header-center">
               <svg class="dr-moon" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
