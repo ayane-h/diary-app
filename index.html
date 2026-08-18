@@ -10,6 +10,14 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Klee+One&family=Kosugi+Maru&family=Shippori+Mincho&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="img/手帳アイコン.png">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="img/手帳アイコン.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="日記">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <!-- 実際の色はJS側(applyTheme)で、アプリ内で選んだテーマ(ダーク/ライト)に合わせて書き換える。
+       ここではダークモード基本のため初期値をダーク背景にしておく -->
+  <meta name="theme-color" content="#121826">
 </head>
 
 <body>
@@ -517,7 +525,17 @@
       // ---------------- render ----------------
       function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
       function fontCss(id) { const f = FONT_OPTIONS.find(f => f.id === id); return f ? f.css : FONT_OPTIONS[0].css; }
-      function applyTheme() { root.classList.toggle('theme-light', state.settings.theme === 'light'); }
+      function applyTheme() {
+        const isLight = state.settings.theme === 'light';
+        root.classList.toggle('theme-light', isLight);
+        // オーバースクロール(引っ張った時に見える裏側)や、ブラウザのアドレスバー/ステータスバーの色も
+        // アプリ内のテーマ選択(OSの設定ではなく)に合わせて、その都度書き換える
+        const bg = isLight ? '#F7F3EA' : '#121826';
+        document.documentElement.style.backgroundColor = bg;
+        document.body.style.backgroundColor = bg;
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', bg);
+      }
       function fmtDate(ts) {
         const d = new Date(ts);
         return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
@@ -572,7 +590,7 @@
             <div class="dr-header-actions">
               <button class="dr-icon-btn" id="dr-open-analysis" title="じぶんを見つめる"><img src="img/手鏡アイコン.png"></button>
               ${state.settings.pinHash ? '<button class="dr-icon-btn" id="dr-lock-now" title="ロックする"><img src="img/鍵アイコン.png"></button>' : ''}
-              <button class="dr-icon-btn" id="dr-open-settings" title="設定"><img src="img/歯車アイコン.png"></button>
+              <button class="dr-icon-btn" id="dr-open-settings" title="設定"><img src="img/設定アイコン.png"></button>
             </div>
             <div class="dr-header-center">
               <svg class="dr-moon" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>

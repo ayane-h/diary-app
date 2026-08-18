@@ -10,6 +10,12 @@ html {
     text-size-adjust: 100%;
 }
 
+html,
+body {
+    /* JS側(applyTheme)がテーマに応じて上書きする。ここではダークモード基本のため初期値としてダーク背景 */
+    background-color: #121826;
+}
+
 #diary-root {
     --bg1: #2E2F52;
     --bg2: #14162A;
@@ -938,6 +944,7 @@ html {
         font-size: 16px;
     }
 
+    /* ライトモード×スマホのときだけ、日記カード・作成欄の影が強く浮いて見えるので弱める(PC・ダークモードは変更なし) */
     #diary-root.theme-light .dr-entry {
         box-shadow: 0 4px 10px rgba(43, 36, 56, 0.10);
     }
