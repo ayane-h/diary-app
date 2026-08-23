@@ -77,6 +77,25 @@ body {
     box-sizing: border-box;
 }
 
+/* ---------- スクロールバー：裏側の白い帯を消し、バーだけを見せる ---------- */
+html {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(150, 145, 165, 0.45) transparent;
+}
+
+html::-webkit-scrollbar {
+    width: 10px;
+}
+
+html::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+html::-webkit-scrollbar-thumb {
+    background-color: rgba(150, 145, 165, 0.45);
+    border-radius: 10px;
+}
+
 .dr-wrap {
     max-width: 600px;
     margin: 0 auto;
@@ -246,6 +265,21 @@ body {
     overflow-y: auto;
     margin: 4px -4px 4px;
     padding: 0 4px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ink-faint) transparent;
+}
+
+.dr-hidden-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.dr-hidden-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.dr-hidden-list::-webkit-scrollbar-thumb {
+    background-color: var(--ink-faint);
+    border-radius: 8px;
 }
 
 .dr-hidden-list .dr-entry:last-child {
@@ -290,8 +324,10 @@ body {
 
 .dr-textarea {
     width: 100%;
-    min-height: 96px;
-    resize: vertical;
+    min-height: 94px;   /* JSのautoResizeTextareaで実際の高さ(3〜9行)を管理する。ここは初期表示用のフォールバック */
+    max-height: 268px;  /* 9行相当。これを超えたらスクロール */
+    resize: none;       /* 自動で伸びるため、手動リサイズは無効化 */
+    overflow-y: hidden;  /* JS側で、9行を超えたときだけ auto に切り替える */
     border: none;
     outline: none;
     background: transparent;
@@ -299,6 +335,21 @@ body {
     font-size: 16px;
     line-height: 1.8;
     padding: 4px 2px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ink-faint) transparent;
+}
+
+.dr-textarea::-webkit-scrollbar {
+    width: 8px;
+}
+
+.dr-textarea::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.dr-textarea::-webkit-scrollbar-thumb {
+    background-color: var(--ink-faint);
+    border-radius: 8px;
 }
 
 .dr-textarea::placeholder {
@@ -355,12 +406,13 @@ body {
 
 .dr-tag-add-input {
     font-size: 12.5px;
-    padding: 6px 11px;
+    padding: 6px 12px;
     border-radius: 20px;
     border: 1px dashed var(--card-border);
     background: transparent;
     color: var(--ink);
-    width: 110px;
+    width: 100px; /* 「+ タグを追加」がちょうど収まる幅。詰まる/余りすぎる場合はここの数値だけ調整すればOK */
+    flex-shrink: 0;
     outline: none;
 }
 
@@ -935,13 +987,16 @@ body {
 }
 
 @media (max-width: 600px) {
-    .dr-tag-add-input,
     .dr-font-select,
-    .dr-textarea,
     .dr-search input,
     .dr-modal input,
     .dr-modal select {
         font-size: 16px;
+    }
+
+    .dr-tag-add-input {
+        font-size: 16px;
+        width: 130px;
     }
 
     /* ライトモード×スマホのときだけ、日記カード・作成欄の影が強く浮いて見えるので弱める(PC・ダークモードは変更なし) */
