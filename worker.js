@@ -69,16 +69,13 @@ const REFRAME_SYSTEM_PROMPT = `
 // =====================================================================
 // CORS設定
 //   - CORSは「どのサイトのブラウザJSからこのWorkerを呼べるか」だけを制御する。
-//     日記データへのアクセス許可(本人確認)は別途 handleSync 内のトークン検証で行う。
-//   - 本番の公開URLはまだ決まっていないため、コードに直接書かない。
-//     Worker の環境変数 ALLOWED_ORIGINS（カンマ区切り）で管理する。
-//     例: "https://your-name.github.io,https://diary.example.com"
+//     日記データへのアクセス許可(本人確認)は別途トークン検証で行う。
+//   - 本番の公開URLは環境変数 ALLOWED_ORIGINS（カンマ区切り）で管理する。
 //   - 開発中は localhost / 127.0.0.1 / file://(Origin: "null") を自動的に許可する。
-//     これらは開発用の既定許可であり、ALLOWED_ORIGINS の設定は不要。
 // =====================================================================
 function isOriginAllowed(origin, env) {
   if (!origin) return false;
-  if (origin === 'null') return true; // diary-app.html を file:// で直接開いた場合
+  if (origin === 'null') return true; // file:// で直接開いた場合の開発用
   try {
     const { hostname } = new URL(origin);
     if (hostname === 'localhost' || hostname === '127.0.0.1') return true; // ローカル開発サーバー
@@ -102,8 +99,6 @@ function buildCorsHeaders(request, env) {
   if (isOriginAllowed(origin, env)) {
     headers['Access-Control-Allow-Origin'] = origin;
   }
-  // 許可されていないOriginの場合、Access-Control-Allow-Originを付けない。
-  // これによりブラウザ側でCORSエラーとして扱われ、レスポンスは読み取れなくなる。
   return headers;
 }
 
@@ -112,7 +107,6 @@ export default {
     const cors = buildCorsHeaders(request, env);
 
     if (request.method === 'OPTIONS') {
-      // プリフライトリクエストへの応答
       return new Response(null, { headers: cors });
     }
     if (request.method !== 'POST') {
@@ -124,6 +118,11 @@ export default {
     // ---- Phase 1: Cloudflare D1への自動バックアップ ----
     if (url.pathname === '/sync') {
       return handleSync(request, env, cors);
+    }
+
+    // ---- Phase 4: Cloudflare D1からの復元(読み取り専用) ----
+    if (url.pathname === '/restore') {
+      return handleRestore(request, env, cors);
     }
 
     // ---- 既存機能：Gemini APIへの中継（リフレーミング／じぶんを見つめる分析） ----
@@ -164,9 +163,8 @@ export default {
 // 匿名ID・秘密トークンによる自動バックアップ処理。
 // ・匿名IDだけでは書き込みを許可しない（秘密トークンのハッシュが一致して初めて許可）
 // ・初回アクセス時のみ、そのトークンを「このIDの正規トークン」として自動登録する(TOFU方式)
-// ・以後、同じIDに別のトークンで書き込もうとした場合は拒否する
 // ・CORSはここでは一切関与しない。本人確認は完全にこの関数の中で行う
-// ・現時点(Phase 1)では日記データは平文のまま保存される。暗号化はPhase 3で別途対応する
+// ・現時点では日記データは暗号化された状態で受け取り、そのまま保存する(Workerは復号しない)
 async function handleSync(request, env, cors) {
   const jsonHeaders = { ...cors, 'Content-Type': 'application/json' };
   try {
@@ -188,26 +186,22 @@ async function handleSync(request, env, cors) {
     }
 
     const tokenHash = await sha256Hex(token);
-    // settings も Phase 3 からは {v, iv, cipher} という暗号化済みオブジェクトが届く。
-    // Workerはこれも中身を理解せず、そのままJSON文字列として保存するだけ。
+    // settings は {v, iv, cipher} という暗号化済みオブジェクトが届く。Workerはこれも中身を理解せず保存するだけ。
     const settingsJson = settings ? JSON.stringify(settings) : null;
 
     const userRow = await env.DB.prepare('SELECT token_hash FROM users WHERE anon_id = ?').bind(anonId).first();
     if (!userRow) {
+      // 書き込み系エンドポイントなので、初回だけは自動登録してよい(TOFU方式)
       await env.DB.prepare('INSERT INTO users (anon_id, token_hash, created_at, settings_json) VALUES (?, ?, ?, ?)')
         .bind(anonId, tokenHash, Date.now(), settingsJson)
         .run();
     } else if (userRow.token_hash !== tokenHash) {
-      // 匿名IDは合っていても、秘密トークンが一致しないため書き込みを拒否
       return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: jsonHeaders });
     } else if (settingsJson) {
       await env.DB.prepare('UPDATE users SET settings_json = ? WHERE anon_id = ?').bind(settingsJson, anonId).run();
     }
 
-    // Phase 3: entries は [{ id, encrypted: {v, iv, cipher} }] という暗号化済みの形で届く。
-    // Workerは中身を一切理解・復号せず、そのままD1へ保存するだけ。
-    // is_hidden・作成日時も暗号文の中にしかないため、D1側の列には意味のある値を入れない
-    // （is_hiddenは常に0、created_at/updated_atはD1に書き込んだ時刻）。
+    // 「丸ごと洗い替え」方式：この匿名IDの既存行を消し、送られてきた最新のentries全体を入れ直す
     const now = Date.now();
     const statements = [env.DB.prepare('DELETE FROM entries WHERE anon_id = ?').bind(anonId)];
     for (const e of entries) {
@@ -222,9 +216,56 @@ async function handleSync(request, env, cors) {
 
     return new Response(JSON.stringify({ ok: true }), { headers: jsonHeaders });
   } catch (e) {
-    // Workerのログにも秘密トークンや個々の日記内容は出さない
     console.error('sync failed');
     return new Response(JSON.stringify({ error: 'sync failed' }), { status: 500, headers: jsonHeaders });
+  }
+}
+
+// Cloudflare D1からの復元(読み取り専用)。
+// /sync とは違い、未登録のanonIdに対して自動登録は行わない（読み取り専用エンドポイントに
+// 書き込み的な副作用を持たせないため）。該当データが無ければ404を返すだけ。
+// トークンのハッシュ照合ロジック自体は /sync と共通(sha256Hex)で、認証の強度は同じ。
+// Workerはここでも一切復号しない。暗号文をそのままブラウザへ返すだけ。
+async function handleRestore(request, env, cors) {
+  const jsonHeaders = { ...cors, 'Content-Type': 'application/json' };
+  try {
+    if (!env.DB) {
+      return new Response(JSON.stringify({ error: 'restore not configured' }), { status: 503, headers: jsonHeaders });
+    }
+
+    const token = request.headers.get('X-Diary-Token');
+    if (!token || token.length < 32) {
+      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: jsonHeaders });
+    }
+
+    const body = await request.json();
+    const anonId = body && body.anonId;
+    if (!anonId || typeof anonId !== 'string') {
+      return new Response(JSON.stringify({ error: 'invalid body' }), { status: 400, headers: jsonHeaders });
+    }
+
+    const tokenHash = await sha256Hex(token);
+
+    const userRow = await env.DB.prepare('SELECT token_hash, settings_json FROM users WHERE anon_id = ?').bind(anonId).first();
+    if (!userRow) {
+      // 復元は読み取り専用。未登録のIDを勝手に作ったりはしない。単に「復元対象なし」として扱う
+      return new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: jsonHeaders });
+    }
+    if (userRow.token_hash !== tokenHash) {
+      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: jsonHeaders });
+    }
+
+    const rows = await env.DB.prepare('SELECT entry_id, content_json FROM entries WHERE anon_id = ?').bind(anonId).all();
+    const entries = (rows.results || []).map(r => ({
+      id: r.entry_id,
+      encrypted: JSON.parse(r.content_json),
+    }));
+    const settings = userRow.settings_json ? JSON.parse(userRow.settings_json) : null;
+
+    return new Response(JSON.stringify({ entries, settings }), { headers: jsonHeaders });
+  } catch (e) {
+    console.error('restore failed');
+    return new Response(JSON.stringify({ error: 'restore failed' }), { status: 500, headers: jsonHeaders });
   }
 }
 

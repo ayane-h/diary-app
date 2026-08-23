@@ -13,6 +13,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="img/手帳アイコン.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="日記">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <!-- 実際の色はJS側(applyTheme)で、アプリ内で選んだテーマ(ダーク/ライト)に合わせて書き換える。
@@ -65,6 +66,9 @@
         pendingDeleteTag: null,
         composerTagsExpanded: false,
         filterTagsExpanded: false,
+        restoring: false,
+        restoreChecking: false,
+        restorePreview: null,
       };
 
       // ---------------- storage helpers ----------------
@@ -170,6 +174,10 @@
         cachedCloudKey = await crypto.subtle.importKey('raw', fromB64(raw), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
         return cachedCloudKey;
       }
+      // 既存の鍵を「取得のみ」試みる。無ければnullを返す（復元時、勝手に新しい鍵を作ってしまわないようにするため）
+      function getExistingCloudKeyRaw() {
+        return localStorage.getItem(CLOUD_KEY_STORAGE);
+      }
       // 任意のオブジェクトをJSON化してAES-GCMで暗号化する。Cloudflareに送るのはこの戻り値だけ。
       async function encryptForCloud(obj) {
         const key = await getOrCreateCloudKey();
@@ -177,6 +185,17 @@
         const plainBuf = new TextEncoder().encode(JSON.stringify(obj));
         const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plainBuf);
         return { v: 1, iv: toB64(iv), cipher: toB64(cipherBuf) };
+      }
+      // encryptForCloudの逆。D1から取得した暗号文をブラウザ内の鍵で復号する（Phase 4: 復元機能）
+      async function decryptFromCloud(payload) {
+        if (!payload || typeof payload !== 'object' || !payload.iv || !payload.cipher) {
+          throw new Error('invalid payload shape');
+        }
+        const key = await getOrCreateCloudKey();
+        const iv = fromB64(payload.iv);
+        const cipherBuf = fromB64(payload.cipher);
+        const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipherBuf);
+        return JSON.parse(new TextDecoder().decode(plainBuf));
       }
 
       // ---------------- image helper ----------------
@@ -223,6 +242,13 @@
         }
         return { id, token };
       }
+      // 復元用：新規生成はせず、既存のID・トークンが揃っているときだけ返す
+      function getExistingSyncCredentials() {
+        const id = localStorage.getItem(SYNC_ID_KEY);
+        const token = localStorage.getItem(SYNC_TOKEN_KEY);
+        if (!id || !token) return null;
+        return { id, token };
+      }
 
       // ローカル保存が完了した"後"に、裏側で静かにCloudflareへバックアップを試みる。
       // 送信前に必ず暗号化する。暗号化・通信のどちらが失敗しても false を返すだけで、
@@ -256,6 +282,172 @@
           // 暗号化の失敗・通信失敗・タイムアウトなど。技術的な詳細は握りつぶし、画面には出さない。
           // ここで平文を送ることは絶対にしない。
           return false;
+        }
+      }
+
+      // ---------------- Cloudflare D1 からの復元 (Phase 4) ----------------
+      // Worker/D1は暗号文を渡すだけで、復号は必ずブラウザ側で行う。
+      async function fetchCloudBackup(id, token) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        try {
+          const res = await fetch(WORKER_URL + '/restore', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Diary-Token': token,
+            },
+            body: JSON.stringify({ anonId: id }),
+            signal: controller.signal,
+          });
+          clearTimeout(timer);
+          if (!res.ok) return { ok: false, reason: 'response' };
+          const data = await res.json();
+          if (!data || !Array.isArray(data.entries)) return { ok: false, reason: 'shape' };
+          return { ok: true, data };
+        } catch (e) {
+          clearTimeout(timer);
+          return { ok: false, reason: 'network' };
+        }
+      }
+
+      // 「クラウドから復元」の入口。ボタンを押した瞬間にここが呼ばれる。
+      // ここでは実行せず、安全確認と件数の取得だけを行い、確認モーダルへ渡す。
+      async function openRestoreFlow() {
+        if (state.restoring || state.restoreChecking) return; // 二重実行防止
+
+        // ローカルに未同期の変更が残っている場合、クラウド側はまだ最新ではない可能性がある。
+        // 通信すら行わず、その場でブロックする。
+        if (isPendingSync()) {
+          showToast('まだクラウドに保存されていない変更があります。\n保存を確認してから、もう一度お試しください。');
+          return;
+        }
+
+        const creds = getExistingSyncCredentials();
+        const keyRaw = getExistingCloudKeyRaw();
+        if (!creds || !keyRaw) {
+          showToast('この端末に復元用の情報が見つかりませんでした。');
+          return;
+        }
+
+        state.restoreChecking = true;
+        state.modal = 'restore-cloud';
+        state.restorePreview = null;
+        render();
+
+        const result = await fetchCloudBackup(creds.id, creds.token);
+        state.restoreChecking = false;
+
+        if (!result.ok) {
+          state.modal = null;
+          render();
+          showToast(result.reason === 'network' ? '通信に失敗しました。もう一度お試しください。' : '復元できるデータが見つかりませんでした。');
+          return;
+        }
+        if (result.data.entries.length === 0) {
+          state.modal = null;
+          render();
+          showToast('復元できる日記が見つかりませんでした。');
+          return;
+        }
+
+        // ここでは取得しただけで、まだ何もローカルには反映しない。件数を見せて確認してもらう。
+        state.restorePreview = {
+          localCount: state.entries.length,
+          cloudCount: result.data.entries.length,
+          data: result.data,
+        };
+        render();
+      }
+
+      // 確認モーダルで「実行」が押されたときだけ、実際に復号してローカルへ反映する。
+      // 安全のため：
+      // ・取得したデータを1件ずつ復号し、1件でも失敗したら全体を中止して既存のlocalStorageには一切触れない
+      // ・確認モーダルを開いていた間に新しい変更が発生していないか、実行直前にもう一度確認する
+      async function applyRestoreFromCloud() {
+        if (state.restoring || !state.restorePreview) return;
+
+        // モーダルを開いている間に日記を書いた等で状況が変わっていないか、念のため再確認する
+        if (isPendingSync()) {
+          state.modal = null;
+          state.restorePreview = null;
+          render();
+          showToast('まだクラウドに保存されていない変更があります。\n保存を確認してから、もう一度お試しください。');
+          return;
+        }
+
+        state.restoring = true;
+        render();
+        const wasLocalEmpty = state.restorePreview.localCount === 0;
+        const cloudData = state.restorePreview.data;
+
+        try {
+          const restoredEntries = [];
+          for (const row of cloudData.entries) {
+            if (!row || !row.id || !row.encrypted) throw new Error('unexpected entry shape');
+            const decrypted = await decryptFromCloud(row.encrypted);
+            if (!decrypted || typeof decrypted !== 'object' || !decrypted.id || !decrypted.type) {
+              throw new Error('unexpected decrypted entry');
+            }
+            restoredEntries.push(decrypted);
+          }
+          let restoredSettings = state.settings;
+          if (cloudData.settings) {
+            const decryptedSettings = await decryptFromCloud(cloudData.settings);
+            if (decryptedSettings && typeof decryptedSettings === 'object') {
+              restoredSettings = Object.assign({ defaultFont: 'gothic', pinHash: null, tags: [], theme: 'dark' }, decryptedSettings);
+            }
+          }
+
+          // ここまで全件の復号に成功して初めて、実際のstateを置き換える。
+          // 失敗した場合に画面とlocalStorageが食い違わないよう、直前の状態を控えておく。
+          const prevEntries = state.entries;
+          const prevSettings = state.settings;
+          const prevLocked = state.locked;
+          const prevDraftFont = state.draftFont;
+          const prevSyncVersion = state.syncVersion;
+          const prevSyncedVersion = state.syncedVersion;
+
+          restoredEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+          state.entries = restoredEntries;
+          state.settings = restoredSettings;
+          state.locked = !!state.settings.pinHash;
+          state.draftFont = state.settings.defaultFont || 'gothic';
+          state.syncVersion += 1;
+          state.syncedVersion = state.syncVersion; // 今取得したD1の内容そのものなので、同期済みとして扱う
+          applyTheme();
+
+          const saved = saveLocal();
+          if (!saved) {
+            // 保存に失敗したのでメモリ上の状態も元に戻す。「復元した」という表示にはしない。
+            state.entries = prevEntries;
+            state.settings = prevSettings;
+            state.locked = prevLocked;
+            state.draftFont = prevDraftFont;
+            state.syncVersion = prevSyncVersion;
+            state.syncedVersion = prevSyncedVersion;
+            applyTheme();
+            state.modal = null;
+            state.restoring = false;
+            state.restorePreview = null;
+            render();
+            showToast('復元に失敗しました。もう一度お試しください。');
+            return;
+          }
+
+          state.modal = null;
+          state.restoring = false;
+          state.restorePreview = null;
+          render();
+          // ローカルが空だった場合(=本来の「失ったデータの救済」)と、
+          // 既にデータがある状態で置き換えた場合とで、実態に合わせて表示を変える
+          showToast(wasLocalEmpty
+            ? `☁️ ${restoredEntries.length}件の日記を復元しました`
+            : `☁️ クラウドの内容に置き換えました（${restoredEntries.length}件）`);
+        } catch (e) {
+          // 1件でも失敗したら、既存のlocalStorageには一切触れずに中止する
+          state.restoring = false;
+          showToast('復元に失敗しました。データは変更されていません。');
         }
       }
 
@@ -540,6 +732,20 @@
         const d = new Date(ts);
         return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
       }
+      // 作成欄：初期3行、入力に合わせて9行までは自然に伸び、それ以上は内側でスクロールする
+      const TEXTAREA_MIN_LINES = 3;
+      const TEXTAREA_MAX_LINES = 9;
+      function autoResizeTextarea(ta) {
+        const style = getComputedStyle(ta);
+        const lineHeight = parseFloat(style.lineHeight) || 24;
+        const paddingV = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+        const minH = lineHeight * TEXTAREA_MIN_LINES + paddingV;
+        const maxH = lineHeight * TEXTAREA_MAX_LINES + paddingV;
+        ta.style.height = 'auto'; // 一旦リセットして、実際に必要な高さ(scrollHeight)を測る
+        const contentH = ta.scrollHeight;
+        ta.style.height = Math.min(Math.max(contentH, minH), maxH) + 'px';
+        ta.style.overflowY = contentH > maxH ? 'auto' : 'hidden';
+      }
       // タグの表示数を制限し、「すべてのタグを見る」で展開できるようにする共通ヘルパー
       const TAG_SHOW_LIMIT = 8;
       function renderTagChips(tags, opts) {
@@ -754,11 +960,49 @@
               <div style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px;">
                 ${state.settings.pinHash ? '現在、アプリはPINで保護されています。' : 'PINを設定すると、開くたびにロック画面が表示されます。'}
               </div>
-              <div class="dr-modal-actions">
+              <div class="dr-modal-actions" style="margin-bottom:6px;">
                 ${state.settings.pinHash
               ? '<button class="dr-modal-btn danger" id="dr-remove-pin">ロックを解除</button>'
               : '<button class="dr-modal-btn primary" id="dr-goto-setpin">PINを設定する</button>'}
+              </div>
+
+              <label>クラウドから復元</label>
+              <div style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px;">
+                この端末の日記データが失われてしまった場合、Cloudflareに保存されているバックアップから復元できることがあります。
+              </div>
+              <div class="dr-modal-actions" style="margin-bottom:6px;">
+                <button class="dr-modal-btn ghost" id="dr-goto-restore-cloud">☁️ クラウドから復元</button>
+              </div>
+
+              <div class="dr-modal-actions">
                 <button class="dr-modal-btn ghost" id="dr-modal-close">閉じる</button>
+              </div>
+            </div>
+          </div>`;
+        }
+        if (state.modal === 'restore-cloud') {
+          if (state.restoreChecking || !state.restorePreview) {
+            return `
+            <div class="dr-modal-backdrop" id="dr-modal-backdrop">
+              <div class="dr-modal">
+                <h3>クラウドを確認しています</h3>
+                <div class="dr-modal-note">Cloudflareに保存されている内容を確認しています…</div>
+              </div>
+            </div>`;
+          }
+          const { localCount, cloudCount } = state.restorePreview;
+          const wasLocalEmpty = localCount === 0;
+          return `
+          <div class="dr-modal-backdrop" id="dr-modal-backdrop">
+            <div class="dr-modal">
+              <h3>${wasLocalEmpty ? 'クラウドに保存された日記を復元しますか？' : '現在の端末の日記をクラウドの内容に置き換えますか？'}</h3>
+              ${wasLocalEmpty
+              ? `<div class="dr-modal-note">クラウドに${cloudCount}件の日記が見つかりました。この端末に復元します。</div>`
+              : `<div class="dr-modal-note">現在の端末：${localCount}件／クラウド：${cloudCount}件</div>
+                 <div class="dr-modal-note">現在の端末にある日記を、クラウドに保存されている内容で置き換えます。この操作は取り消せません。</div>`}
+              <div class="dr-modal-actions">
+                <button class="dr-modal-btn ghost" id="dr-modal-close" ${state.restoring ? 'disabled' : ''}>キャンセル</button>
+                <button class="dr-modal-btn primary" id="dr-confirm-restore-cloud" ${state.restoring ? 'disabled' : ''}>${state.restoring ? '実行しています…' : (wasLocalEmpty ? '復元する' : '置き換える')}</button>
               </div>
             </div>
           </div>`;
@@ -930,7 +1174,12 @@
 
         if (q('#dr-textarea')) {
           const ta = q('#dr-textarea');
-          ta.oninput = e => { state.draftText = e.target.value; q('#dr-save-btn').disabled = !state.draftText.trim(); };
+          autoResizeTextarea(ta); // 表示直後の高さも合わせておく
+          ta.oninput = e => {
+            state.draftText = e.target.value;
+            q('#dr-save-btn').disabled = !state.draftText.trim();
+            autoResizeTextarea(ta);
+          };
         }
         if (q('#dr-font-select')) {
           const fontSelect = q('#dr-font-select');
@@ -983,9 +1232,11 @@
         if (q('#dr-open-hidden')) q('#dr-open-hidden').onclick = () => { state.modal = 'hidden-list'; render(); };
         // ロックすると、一時的に開いていた「今は見ない日記」もすべて再度隠す
         if (q('#dr-lock-now')) q('#dr-lock-now').onclick = () => { state.locked = true; state.decrypted = {}; state.openMenuId = null; render(); };
-        if (q('#dr-modal-close')) q('#dr-modal-close').onclick = () => { state.modal = null; render(); };
+        if (q('#dr-modal-close')) q('#dr-modal-close').onclick = () => { if (state.restoring) return; state.modal = null; state.restorePreview = null; render(); };
         if (q('#dr-goto-setpin')) q('#dr-goto-setpin').onclick = () => { state.modal = 'setpin'; render(); };
         if (q('#dr-remove-pin')) q('#dr-remove-pin').onclick = removePin;
+        if (q('#dr-goto-restore-cloud')) q('#dr-goto-restore-cloud').onclick = () => openRestoreFlow();
+        if (q('#dr-confirm-restore-cloud')) q('#dr-confirm-restore-cloud').onclick = () => applyRestoreFromCloud();
         if (q('#dr-theme-select')) q('#dr-theme-select').onchange = async e => { state.settings.theme = e.target.value; applyTheme(); await persist(); scheduleSync(); };
         if (q('#dr-confirm-pin')) q('#dr-confirm-pin').onclick = () => {
           const val = q('#dr-new-pin').value.trim();
