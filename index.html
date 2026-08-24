@@ -1194,7 +1194,25 @@
         const q = sel => root.querySelector(sel);
         const qa = sel => root.querySelectorAll(sel);
 
-        if (q('#dr-search-input')) q('#dr-search-input').oninput = e => { state.query = e.target.value; render(); };
+        if (q('#dr-search-input')) {
+          const searchInput = q('#dr-search-input');
+          const rerenderSearch = () => {
+            render();
+            const newInput = root.querySelector('#dr-search-input');
+            if (newInput) {
+              // 再描画で作り直された検索欄に、フォーカスとカーソル位置を戻す
+              newInput.focus();
+              const pos = state.query.length;
+              newInput.setSelectionRange(pos, pos);
+            }
+          };
+          searchInput.oninput = e => {
+            state.query = e.target.value;
+            if (e.isComposing) return; // 日本語入力の変換中は再描画しない(変換が途切れるのを防ぐ)
+            rerenderSearch();
+          };
+          searchInput.addEventListener('compositionend', rerenderSearch);
+        }
         qa('[data-mode]').forEach(btn => btn.onclick = () => {
           const switchingToText = btn.dataset.mode === 'text' && state.mode !== 'text';
           state.mode = btn.dataset.mode;
