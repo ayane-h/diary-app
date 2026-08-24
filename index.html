@@ -40,6 +40,7 @@
       const SYNC_ID_KEY = 'diary_sync_id';       // 匿名ID（秘密情報ではない。サーバー側の行を特定するためだけの値）
       const SYNC_TOKEN_KEY = 'diary_sync_secret'; // 秘密トークン（画面・URL・ログには一切出さない）
       const PHASE3_MIGRATION_FLAG = 'diary_phase3_migrated'; // Phase3導入時の強制再送(平文D1データの上書き)が済んだかどうか
+      const WELCOME_SEEN_KEY = 'diary_welcome_seen'; // 初回ウェルカムカードを表示済みかどうか
 
       let state = {
         entries: [],
@@ -87,6 +88,10 @@
         state.draftFont = state.settings.defaultFont || 'gothic';
         applyTheme();
         state.loaded = true;
+        // アプリを初めて開いたときだけ、操作説明ではなく「何のためのアプリか」を1画面だけ伝える
+        if (!localStorage.getItem(WELCOME_SEEN_KEY)) {
+          state.modal = 'welcome';
+        }
         render();
         // Phase 3導入後、初回起動時だけ、D1に残っている旧・平文データを
         // 暗号化データで確実に上書きするため、強制的に「未同期」扱いにする
@@ -704,6 +709,12 @@
         showToast(`「${name}」タグを削除しました`);
         scheduleSync();
       }
+      // 初回ウェルカムカードを閉じる（表示済みフラグを立てるだけ）
+      function closeWelcome() {
+        localStorage.setItem(WELCOME_SEEN_KEY, '1');
+        state.modal = null;
+        render();
+      }
       // 「⋯」メニューの外側をクリックしたら自動で閉じる
       function bindOutsideMenuClose() {
         setTimeout(() => {
@@ -934,11 +945,52 @@
       }
 
       function renderModal() {
+        if (state.modal === 'welcome') {
+          return `
+          <div class="dr-modal-backdrop dr-modal-backdrop-strong" id="dr-modal-backdrop">
+            <div class="dr-modal dr-modal-welcome">
+              <p class="dr-welcome-title">気軽に、思ったことを残そう。</p>
+              <div class="dr-modal-note">うれしいことも、もやもやすることも。<br>ここでは、きれいにまとめなくて大丈夫です。</div>
+              <div class="dr-modal-note">書いたあとに、別の見方を探すこともできます。</div>
+              <div class="dr-modal-actions">
+                <button class="dr-modal-btn primary" id="dr-welcome-start" style="width:100%;">はじめる</button>
+              </div>
+            </div>
+          </div>`;
+        }
+        if (state.modal === 'howto') {
+          return `
+          <div class="dr-modal-backdrop" id="dr-modal-backdrop">
+            <div class="dr-modal wide dr-modal-howto">
+              <h3>使い方</h3>
+              <label>日記を書く</label>
+              <div class="dr-modal-note">下の入力欄に書いて「書きとめる」を押すだけで保存されます。会員登録やログインは必要ありません。</div>
+
+              <label>🔄 言いかえる</label>
+              <div class="dr-modal-note">書いた内容を無理にポジティブへ変えるものではありません。同じ出来事を、別の角度から見るヒントを添えるための機能です。</div>
+
+              <label>🌙 いったんしまう</label>
+              <div class="dr-modal-note">削除ではなく、今は見返したくない日記を通常の一覧から一時的に分けておく機能です。「しまった日記」からいつでも元に戻せます。</div>
+
+              <label>保存について</label>
+              <div class="dr-modal-note">日記はこの端末に保存されるほか、Cloudflareへ自動でバックアップされます。端末のデータが失われてしまった場合、設定の「クラウドから復元」から取り戻せることがあります。</div>
+
+              <div class="dr-modal-actions">
+                <button class="dr-modal-btn ghost" id="dr-modal-close">閉じる</button>
+              </div>
+            </div>
+          </div>`;
+        }
         if (state.modal === 'settings') {
           return `
           <div class="dr-modal-backdrop" id="dr-modal-backdrop">
             <div class="dr-modal">
               <h3>設定</h3>
+              <label>使い方</label>
+              <div class="dr-modal-actions" style="margin-bottom:6px;">
+                <button class="dr-modal-btn ghost" id="dr-goto-howto">📖 使い方を見る</button>
+              </div>
+
               <label>テーマ</label>
               <select id="dr-theme-select">
                 <option value="dark" ${state.settings.theme !== 'light' ? 'selected' : ''}>ダーク</option>
@@ -1224,6 +1276,8 @@
         });
 
         if (q('#dr-open-settings')) q('#dr-open-settings').onclick = () => { state.modal = 'settings'; render(); };
+        if (q('#dr-welcome-start')) q('#dr-welcome-start').onclick = () => closeWelcome();
+        if (q('#dr-goto-howto')) q('#dr-goto-howto').onclick = () => { state.modal = 'howto'; render(); };
         if (q('#dr-open-analysis')) q('#dr-open-analysis').onclick = async () => {
           state.modal = 'analysis'; render();
           if (!state.analysisLoaded) { state.analysisLoaded = true; await loadAnalysis(); render(); }

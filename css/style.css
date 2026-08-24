@@ -411,7 +411,7 @@ html::-webkit-scrollbar-thumb {
     border: 1px dashed var(--card-border);
     background: transparent;
     color: var(--ink);
-    width: 100px; /* 「+ タグを追加」がちょうど収まる幅。詰まる/余りすぎる場合はここの数値だけ調整すればOK */
+    width: 112px; /* 「+ タグを追加」がちょうど収まる幅。詰まる/余りすぎる場合はここの数値だけ調整すればOK */
     flex-shrink: 0;
     outline: none;
 }
@@ -845,6 +845,58 @@ html::-webkit-scrollbar-thumb {
     max-width: 460px;
 }
 
+/* ---------- 初回ウェルカムカード専用の見た目調整（他のモーダルには影響しない） ---------- */
+.dr-modal-backdrop-strong {
+    /* 背景を「見えるけれど読む必要はない」程度まで落とし、blurで視線をカードへ誘導する */
+    background: rgba(6, 7, 16, 0.86);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.dr-modal-welcome {
+    max-width: 316px;
+    padding: 22px 20px 18px;
+    text-align: center;
+}
+
+/* ---------- 「使い方」モーダル：ライトモードのときだけ、白すぎる印象を抑える ---------- */
+#diary-root.theme-light .dr-modal-howto {
+    background: #FAF8F5; /* ページのオフホワイトに近い、紙のような色 */
+}
+
+/* 太さはダーク/ライト共通 */
+.dr-modal-howto h3,
+.dr-modal.dr-modal-howto label {
+    font-weight: bold;
+}
+
+#diary-root.theme-light .dr-modal-howto h3,
+#diary-root.theme-light .dr-modal.dr-modal-howto label {
+    color: #333333;
+}
+
+#diary-root.theme-light .dr-modal.dr-modal-howto .dr-modal-note {
+    line-height: 1.6;
+    color: #334155;
+}
+
+.dr-modal-welcome .dr-modal-note {
+    margin-top: 8px;
+}
+
+.dr-modal-welcome .dr-modal-actions {
+    margin-top: 16px;
+}
+
+.dr-welcome-title {
+    margin: 0 0 12px;
+    font-family: Georgia, "Hiragino Mincho ProN", serif;
+    font-weight: 500; /* 見出しの重さを抜き、「気軽さ」に寄せる */
+    font-size: 16.5px;
+    line-height: 1.65;
+    letter-spacing: .01em;
+}
+
 .dr-modal h3 {
     margin: 0 0 14px;
     font-family: Georgia, "Hiragino Mincho ProN", serif;
@@ -996,7 +1048,7 @@ html::-webkit-scrollbar-thumb {
 
     .dr-tag-add-input {
         font-size: 16px;
-        width: 130px;
+        width: 150px; /* 16px化で文字が大きくなった分の幅。詰まる/余りすぎる場合はここの数値だけ調整すればOK */
     }
 
     /* ライトモード×スマホのときだけ、日記カード・作成欄の影が強く浮いて見えるので弱める(PC・ダークモードは変更なし) */
