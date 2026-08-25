@@ -523,7 +523,7 @@
       // 日記全体の分析機能（自己理解）
       async function generateAnalysis(entries) {
         const targetEntries = entries || (typeof state !== 'undefined' && state.entries) || [];
-        const textList = targetEntries.filter(e => e.type === 'text' && !e.encrypted && e.text).map(e => `- ${e.text}`).join('\n');
+        const textList = targetEntries.filter(e => e.type === 'text' && !e.encrypted && !e.isHidden && e.text).map(e => `- ${e.text}`).join('\n');
 
         if (!textList) {
           showToast('分析できる日記がありません。');
@@ -533,7 +533,7 @@
         state.analysisLoading = true;
         render();
 
-        const prompt = `あなたは心理カウンセラーです。以下に蓄積されたユーザーの日記一覧を読み、全体的な感情の傾向、思考の癖、そして温かいアドバイスを300文字程度で要約・分析してください。\n\n【日記一覧】\n${textList}`;
+        const prompt = `あなたは心理カウンセラーです。以下に蓄積されたユーザーの日記一覧を読み、全体的な感情の傾向、思考の癖、そして温かいアドバイスを300文字程度で要約・分析してください。「こんにちは」「心理カウンセラーです」のような挨拶や自己紹介は一切書かず、本文の内容からそのまま書き始めてください。\n\n【日記一覧】\n${textList}`;
 
         try {
           const response = await fetch(WORKER_URL, {
@@ -549,7 +549,7 @@
 
           state.analysis = {
             text: resultText,
-            basedOnCount: targetEntries.filter(e => e.type === 'text' && !e.encrypted).length,
+            basedOnCount: targetEntries.filter(e => e.type === 'text' && !e.encrypted && !e.isHidden).length,
             generatedAt: Date.now()
           };
           await saveAnalysis();
@@ -967,7 +967,10 @@
               <div class="dr-modal-note">下の入力欄に書いて「書きとめる」を押すだけで保存されます。会員登録やログインは必要ありません。</div>
 
               <label>🔄 言いかえる</label>
-              <div class="dr-modal-note">書いた内容を無理にポジティブへ変えるものではありません。同じ出来事を、別の角度から見るヒントを添えるための機能です。</div>
+              <div class="dr-modal-note">書いた内容を無理にポジティブへ変えるものではありません。同じ出来事を、別の角度から見るヒントを添えるための機能です。送信内容はGoogleの無料APIを経由するため、Googleのポリシーの対象になります。</div>
+
+              <label>🪞 じぶんを見つめる</label>
+              <div class="dr-modal-note">これまでの日記から、繰り返し出てくる気持ちや傾向をまとめて振り返る機能です。保護した日記・いったんしまった日記は対象に含まれません。こちらもGoogleの無料APIを経由します。</div>
 
               <label>🌙 いったんしまう</label>
               <div class="dr-modal-note">削除ではなく、今は見返したくない日記を通常の一覧から一時的に分けておく機能です。「しまった日記」からいつでも元に戻せます。</div>
@@ -1152,7 +1155,7 @@
           if (state.analysisLoading) body = `<div class="dr-analysis-empty">読み取っています…</div>`;
           else if (state.analysis) body = `
           <div class="dr-analysis-text">${esc(state.analysis.text)}</div>
-          <div class="dr-analysis-meta">${state.analysis.basedOnCount}件の日記をもとに · ${fmtDate(state.analysis.generatedAt)}に生成 · 保護された日記は含みません</div>`;
+          <div class="dr-analysis-meta">${state.analysis.basedOnCount}件の日記をもとに · ${fmtDate(state.analysis.generatedAt)}に生成 · 保護された日記・いったんしまった日記は含みません</div>`;
           else body = `<div class="dr-analysis-empty">${textEntryCount < 1 ? 'もう少し日記がたまったら、ここに傾向が見えてきます。' : 'まだ生成していません。'}</div>`;
           return `
           <div class="dr-modal-backdrop" id="dr-modal-backdrop">
