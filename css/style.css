@@ -412,7 +412,7 @@ html::-webkit-scrollbar-thumb {
     border: 1px dashed var(--card-border);
     background: transparent;
     color: var(--ink);
-    width: 112px; /* 「+ タグを追加」がちょうど収まる幅。詰まる/余りすぎる場合はここの数値だけ調整すればOK */
+    width: 100px;
     flex-shrink: 0;
     outline: none;
 }
@@ -865,6 +865,11 @@ html::-webkit-scrollbar-thumb {
     background: #FAF8F5; /* ページのオフホワイトに近い、紙のような色 */
 }
 
+.dr-modal-howto h3,
+.dr-modal.dr-modal-howto label {
+    font-weight: bold;
+}
+
 #diary-root.theme-light .dr-modal-howto h3,
 #diary-root.theme-light .dr-modal.dr-modal-howto label {
     color: #333333;
@@ -872,7 +877,7 @@ html::-webkit-scrollbar-thumb {
 
 #diary-root.theme-light .dr-modal.dr-modal-howto .dr-modal-note {
     line-height: 1.6;
-    color: #55333d;
+    color: #334155;
 }
 
 .dr-modal-welcome .dr-modal-note {
@@ -1043,7 +1048,7 @@ html::-webkit-scrollbar-thumb {
 
     .dr-tag-add-input {
         font-size: 16px;
-        width: 150px; /* 16px化で文字が大きくなった分の幅。詰まる/余りすぎる場合はここの数値だけ調整すればOK */
+        width: 130px; /* 16px化で文字が大きくなった分の幅。詰まる/余りすぎる場合はここの数値だけ調整すればOK */
     }
 
     /* ライトモード×スマホのときだけ、日記カード・作成欄の影が強く浮いて見えるので弱める(PC・ダークモードは変更なし) */
